@@ -1,0 +1,7 @@
+*.o
+out
+*.bmp
+.clang-format
+/.cache
+compile_commands.json
+*.pdf

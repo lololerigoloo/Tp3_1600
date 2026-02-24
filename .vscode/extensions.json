@@ -1,0 +1,7 @@
+{
+    "recommendations": [
+      "ms-vscode.cpptools",
+      "basdp.language-gas-x86",
+      "ms-vscode.hexeditor"
+    ]
+}
