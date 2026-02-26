@@ -27,125 +27,88 @@ max_index:
     .int 3
 
 .text 
-.globl crtFilter                      
-
+.globl crtFilter     
 crtFilter:
     # prologue
-    pushl   %ebp                      
-    movl    %esp, %ebp    
+    pushl %ebp
+    movl  %esp, %ebp
     
-     
+    subl  $4, %esp          # variable locale : [ebp-4] = adresse pixel courante
     pushl %ebx
     pushl %esi
     pushl %edi
 
-    movl 8(%ebp), %ebx # adresse de l'image        
-    addl $4, %ebx # passer à la largeur de l'image
-    movl (%ebx), %edi # largeur de l'image
-    addl $4, %ebx # passer à la hauteur de l'image
-    movl (%ebx), %ebx # hauteur de l'image
-    addl $4, %esi # passer à l'adresse du tableau de pixels
-    
+    movl 8(%ebp), %eax
+    movl 0(%eax), %edi      # edi = largeur
+    movl 4(%eax), %esi      # esi = hauteur  
+    movl 8(%eax), %ebx      # ebx = Pixel**
 
-    
-    # esi = adresse du tableau de pixels
-    # ebx = hauteur de l'image y
-    # edi = largeur de l'image x
-    /*
-    ##################################################################
-    # Ici on fait une double boucle pour parcourir tous les pixels   #
-    # La boucle externe parcourt les lignes (y) et la boucle interne #
-    # parcourt les colonnes (x) de chaque ligne.                     #
-    # avant de rentrer dans la boucle on enleve 1 à la hauteur et    #
-    # à la largeur pour faire un index de 0 à n-1                    #
-    # et éviter les index hors limites                               #
-    ##################################################################
-    */
-    subl $1, %ebx # décrémenter la hauteur pour l'index de ligne
-    subl $1, %edi # décrémenter la largeur pour l'index de colonne
+    movl $0, %ecx           # ecx = y = 0
+for_y:
+    cmpl %esi, %ecx
+    jge end_for_y
 
-    
-        for_y:  
-            
-            
-            for_x:
-                /*
-                #########################################################################
-                # Ici nous allons devoir calculer l'adresse du pixel actuel en          # 
-                #fonction de l'index de ligne (y) et de l'index de colonne (x)          #
-                # L'adresse du pixel peut être calculée avec la formule suivante        #
-                #: adresse_pixel = adresse_tableau_pixels + (y * largeur_image + x) * 3 #
-                # Ensuite on va devoir faire le y % scanlineSpacing pour déterminer     #
-                # si on doit appliquer applyScanline ou applyPhosphor                    #
-                #########################################################################
-                */
-                
-                movl 12(%ebp), %eax # charger scanlineSpacing
-                divl %ebx # diviser la hauteur par scanlineSpacing
-                testl %edx, %edx # vérifier si le reste est zéro (ligne)
-                jz apply_scanline # si c'est un multiple, appliquer applyScanline
-                jmp end_apply_phosphor # sinon, appliquer applyPhosphor
-                apply_scanline:
-                    pushl $60 # pourcentage d'assombrissement
-                    lea (%esi), %eax # charger l'adresse du pixel
-                    pushl %eax # pousser l'adresse du pixel pour l'appel de fonction
-                    call applyScanline
-                    addl $8, %esp # nettoyer la pile après l'appel
-                    jmp end_for_x # passer à la prochaine colonne
-                end_apply_phosphor:
-                /*
-                #############################################################
-                # Ici on vien faire le x % 3 pour déterminer le subpixel    #
-                # et faire l'appel à applyPhosphorEnsuite on netoit la pile #
-                #############################################################
-                */
-                    movl %edi, %eax 
-                    divl $3
-                    pushl %edx 
-                    push %esi
-                    call applyPhosphor
-                    addl $8, %esp  
-                    
-            /*
-            ################################################################
-            # Ici on check si on est rendu a x -1 pour sortir de la boucle #
-            ################################################################
-            */
-            subl $1, %edi # décrémenter la largeur pour l'index de colonne
-            cmp $-1, %edi # vérifier si on a traité toutes les colonnes
-            jne for_x # si on a traité toutes les colonnes, sortir de la boucle
-            
-            end_for_x:
+    movl $0, %edx           # edx = x = 0
+for_x:
+    cmpl %edi, %edx
+    jge end_for_x
 
+    # Adresse du pixel[y][x] → sauvée en variable locale
+    movl (%ebx, %ecx, 4), %eax
+    leal (%eax, %edx, 4), %eax
+    movl %eax, -4(%ebp)     # sauvegarde adresse pixel en local
 
-            /*
-            ################################################################################
-            # Ici on check si on est rendu a y -1 pour sortir de la boucle                 #
-            # et on revient chercher la largeur de l'image pour le prochain tour de boucle #
-            ################################################################################
-            */
+    # y % scanlineSpacing
+    pushl %ecx              # sauvegarde y
+    pushl %edx              # sauvegarde x
+    movl %ecx, %eax
+    xorl %edx, %edx
+    movl 12(%ebp), %ecx
+    divl %ecx               # edx = y % scanlineSpacing
+    testl %edx, %edx
+    popl %edx               # restaure x
+    popl %ecx               # restaure y
+    jnz do_phosphor
 
-            movl 8(%ebp), %edi# recharger l'adresse du tableau de pixels
-            addl $4, %edi # ici on reviens chercher la largeur de l'image
-            movl (%edi), %edi # largeur de l'image
-            subl $1, %edi # décrémenter la largeur pour pas faire un index hors limite pour le prochain tour de boucle
- 
-             
-            subl $1, %ebx # décrémenter la hauteur pour l'index de ligne
-            cmp $-1, %ebx # décrémenter la hauteur pour l'index de ligne
-            jne for_y # si on a traité toutes les lignes, sortir de la boucle
+do_scanline:
+    pushl %ecx
+    pushl %edx
+    pushl $60
+    pushl -4(%ebp)
+    call applyScanline
+    addl $8, %esp
+    popl %edx
+    popl %ecx
+    # PAS de jmp next_x → on tombe directement dans do_phosphor
 
+do_phosphor:
+    pushl %ecx              # sauvegarde y
+    pushl %edx              # sauvegarde x
 
-        end_for_y:
+    movl %edx, %eax
+    xorl %edx, %edx
+    movl $3, %ecx
+    divl %ecx               # edx = x % 3
 
-    finish:
+    pushl %edx              # arg2 : subpixel
+    pushl -4(%ebp)          # arg1 : pixel*
+    call applyPhosphor
+    addl $8, %esp
+
+    popl %edx               # restaure x
+    popl %ecx               # restaure y
+
+next_x:
+    incl %edx
+    jmp for_x
+end_for_x:
+    incl %ecx
+    jmp for_y
+end_for_y:
     popl %edi
     popl %esi
     popl %ebx
-
-    # TODO
-   
     # epilogue
-    leave 
-    ret 
+    leave
+    ret
 
